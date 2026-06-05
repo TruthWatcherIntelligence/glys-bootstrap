@@ -299,38 +299,26 @@ if (-not $hasPython) {
         Write-Warn "After install, use 'py -3.12' to invoke the correct Python."
     }
 
-    $installed = $false
-
-    if ($hasWinget) {
-        try {
-            Write-Step "Trying winget for Python..."
-            winget install Python.Python.3.12 --silent --accept-source-agreements --accept-package-agreements
-            if ($LASTEXITCODE -ne 0) {
-                throw "winget exited with code $LASTEXITCODE"
-            }
-            $installed = $true
-        } catch {
-            Write-Warn "winget install failed: $_"
+    # Python is installed directly from python.org rather than via winget.
+    # winget's Python.Python.3.12 package actually pulls from this same python.org URL,
+    # but going direct avoids the winget abstraction (which is restricted on some
+    # corporate machines) and removes any chance of buyer confusion with the
+    # Microsoft Store Python package, which lacks FTS5 and breaks /user-osint.
+    try {
+        $pyUrl  = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
+        Write-Step "Downloading Python 3.12.10 directly from python.org..."
+        $pyExe  = Invoke-Download -Url $pyUrl -FileName "python-3.12.10-amd64.exe"
+        Write-Step "Running Python installer (quiet)..."
+        $p = Start-Process -FilePath $pyExe `
+            -ArgumentList "/quiet PrependPath=1 InstallAllUsers=0" `
+            -Wait -PassThru
+        if ($p.ExitCode -ne 0) {
+            throw "Python installer exited $($p.ExitCode)"
         }
-    }
-
-    if (-not $installed) {
-        try {
-            $pyUrl  = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe"
-            $pyExe  = Invoke-Download -Url $pyUrl -FileName "python-3.12.10-amd64.exe"
-            Write-Step "Running Python installer (quiet)..."
-            $p = Start-Process -FilePath $pyExe `
-                -ArgumentList "/quiet PrependPath=1 InstallAllUsers=0" `
-                -Wait -PassThru
-            if ($p.ExitCode -ne 0) {
-                throw "Python installer exited $($p.ExitCode)"
-            }
-            Remove-Item $pyExe -ErrorAction SilentlyContinue
-            $installed = $true
-        } catch {
-            Write-Fail "Python install failed: $_"
-            $pythonInstallFailed = $true
-        }
+        Remove-Item $pyExe -ErrorAction SilentlyContinue
+    } catch {
+        Write-Fail "Python install failed: $_"
+        $pythonInstallFailed = $true
     }
 
     # Refresh so subsequent steps can find the new Python.
