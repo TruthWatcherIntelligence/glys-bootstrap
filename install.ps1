@@ -1,4 +1,3 @@
-#Requires -Version 5.1
 <#
 .SYNOPSIS
     Glys Bootstrap Installer for Windows.
@@ -21,6 +20,19 @@ param(
     [switch]$SkipChrome,
     [switch]$NonInteractive
 )
+
+if ($PSVersionTable.PSVersion -lt [Version]'5.1') {
+    Write-Host "PowerShell 5.1 or higher is required. Found $($PSVersionTable.PSVersion)." -ForegroundColor Red
+    Write-Host "Upgrade PowerShell from https://aka.ms/PowerShell-Release" -ForegroundColor Yellow
+    exit 1
+}
+
+# Force TLS 1.2 for all HTTPS calls. PowerShell 5.1 defaults to TLS 1.0/1.1 which
+# GitHub API and many CDNs now reject. The buyer-facing one-liner sets this in
+# the parent IEX scope; we set it again inside the script body so the policy
+# holds regardless of how the script was invoked (direct file execution, .bat
+# shim, in-script re-entry).
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $ErrorActionPreference = "Stop"
 
@@ -279,10 +291,65 @@ Write-Host ""
 # Step 9: winget availability
 $hasWinget = Test-WingetAvailable
 if (-not $hasWinget) {
-    Write-Warn "winget not found. Falling back to direct downloads."
-    Write-Warn "This means: tools will download individually from python.org, claude.ai, etc."
-    Write-Warn "Expect pauses while each download runs; the script is not frozen."
-    Write-Host ""
+    Write-Step "winget not found. Installing App Installer (winget) for cleaner Git and Chrome installs..."
+    Write-Warn "This downloads ~80 MB. Falls back to direct downloads if install fails."
+
+    try {
+        # PID-suffixed temp dir so concurrent runs and stale-files-from-crashed-prior-runs
+        # both work cleanly. Force-clean to remove any prior partial state.
+        $wingetTmp = "$env:TEMP\glys-winget-bootstrap-$PID"
+        if (Test-Path $wingetTmp) {
+            Remove-Item -Recurse -Force $wingetTmp -ErrorAction SilentlyContinue
+        }
+        New-Item -ItemType Directory -Force -Path $wingetTmp | Out-Null
+
+        Write-Step "Downloading VCLibs dependency..."
+        Invoke-WebRequest "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" `
+            -OutFile "$wingetTmp\VCLibs.appx" -UseBasicParsing
+
+        Write-Step "Downloading UI XAML dependency..."
+        Invoke-WebRequest "https://github.com/microsoft/winget-cli/releases/download/v1.7.10661/Microsoft.UI.Xaml.2.8.x64.appx" `
+            -OutFile "$wingetTmp\UIXaml.appx" -UseBasicParsing
+
+        Write-Step "Resolving latest winget release..."
+        $latestRelease = Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-cli/releases/latest" -UseBasicParsing
+        $msixAsset = $latestRelease.assets | Where-Object { $_.name -like "*.msixbundle" } | Select-Object -First 1
+        if (-not $msixAsset) {
+            throw "Could not find winget msixbundle in latest release"
+        }
+        Write-Step "Downloading winget $($latestRelease.tag_name)..."
+        Invoke-WebRequest $msixAsset.browser_download_url -OutFile "$wingetTmp\winget.msixbundle" -UseBasicParsing
+
+        Write-Step "Installing AppX packages..."
+        Add-AppxPackage "$wingetTmp\VCLibs.appx" -ErrorAction Stop
+        Add-AppxPackage "$wingetTmp\UIXaml.appx" -ErrorAction Stop
+        Add-AppxPackage "$wingetTmp\winget.msixbundle" -ErrorAction Stop
+
+        # Re-check after install
+        Refresh-EnvPath
+        $hasWinget = $null -ne (Get-Command winget -ErrorAction SilentlyContinue)
+        if ($hasWinget) {
+            Write-Pass "winget installed successfully."
+        } else {
+            Write-Warn "winget install completed but command not found on PATH."
+            Write-Warn "Falling back to direct downloads."
+        }
+    } catch {
+        # Surface targeted hint for GitHub API rate-limit (corporate NAT, rapid retries).
+        $statusCode = $null
+        try { $statusCode = $_.Exception.Response.StatusCode.value__ } catch {}
+        if ($statusCode -eq 403) {
+            Write-Warn "GitHub API rate limit hit (403). This usually clears in 60 minutes."
+            Write-Warn "If you share an IP with many other developers (corporate NAT), this is the cause."
+        }
+        Write-Warn "winget auto-install failed: $_"
+        Write-Warn "Falling back to direct downloads for Git and Chrome."
+        $hasWinget = $false
+    } finally {
+        if (Test-Path $wingetTmp) {
+            Remove-Item -Recurse -Force $wingetTmp -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,18 @@ All notable changes to the Glys bootstrap installer.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-06-07
+
+### Fixed
+- Removed `#Requires -Version 5.1` from install.ps1; replaced with inline version check. The `#Requires` directive does not work inside `Invoke-Expression`, which broke the canonical `irm | iex` install pattern on stock PowerShell 5.1. Buyer-facing one-liner now works as documented.
+
+### Added
+- winget auto-install on Windows when absent (parity with macOS Homebrew auto-install). Downloads ~80 MB of App Installer + dependencies via Microsoft's official MSIX bundle distribution. Falls back to direct downloads for Git and Chrome if auto-install fails (corporate-locked environments).
+
+### Changed
+- Distribution URLs pinned to `raw/v0.1.3/` instead of `raw/v0.1.2/`.
+- Buyer one-liner (Windows) reverts to the clean `irm | iex` form now that `#Requires` is removed. Includes explicit TLS 1.2 enablement for PowerShell 5.1 compatibility.
+
 ## [0.1.2] - 2026-06-05
 
 ### Changed

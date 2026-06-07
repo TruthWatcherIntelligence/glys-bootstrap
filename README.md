@@ -10,12 +10,12 @@ on your computer so you can install the Glys OSINT plugin.
 Open PowerShell and run:
 
 ```powershell
-irm https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.2/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/TruthWatcherIntelligence/glys-bootstrap/v0.1.3/install.ps1 | iex
 ```
 
 Or, if you prefer to double-click an icon:
 
-1. Download [glys-bootstrap.bat](https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.2/glys-bootstrap.bat)
+1. Download [glys-bootstrap.bat](https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/glys-bootstrap.bat)
 2. Double-click the file
 3. If a SmartScreen dialog appears, click **More info**, then **Run anyway**
 
@@ -26,7 +26,7 @@ Or, if you prefer to double-click an icon:
 Open Terminal and run:
 
 ```bash
-curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.2/install.sh | bash
+curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/install.sh | bash
 ```
 
 ---
@@ -43,7 +43,7 @@ curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.2
 Skip Chrome on Windows by appending `-SkipChrome` to the PowerShell command, or on macOS by replacing the curl command with:
 
 ```bash
-curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.2/install.sh | bash -s -- --skip-chrome
+curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/install.sh | bash -s -- --skip-chrome
 ```
 
 ---
