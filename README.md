@@ -10,12 +10,12 @@ on your computer so you can install the Glys OSINT plugin.
 Open PowerShell and run:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; irm https://raw.githubusercontent.com/TruthWatcherIntelligence/glys-bootstrap/v0.1.3/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/TruthWatcherIntelligence/glys-bootstrap/v0.1.4/install.ps1'))
 ```
 
 Or, if you prefer to double-click an icon:
 
-1. Download [glys-bootstrap.bat](https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/glys-bootstrap.bat)
+1. Download [glys-bootstrap.bat](https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.4/glys-bootstrap.bat)
 2. Double-click the file
 3. If a SmartScreen dialog appears, click **More info**, then **Run anyway**
 
@@ -26,7 +26,7 @@ Or, if you prefer to double-click an icon:
 Open Terminal and run:
 
 ```bash
-curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/install.sh | bash
+curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.4/install.sh | bash
 ```
 
 ---
@@ -43,7 +43,7 @@ curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3
 Skip Chrome on Windows by appending `-SkipChrome` to the PowerShell command, or on macOS by replacing the curl command with:
 
 ```bash
-curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.3/install.sh | bash -s -- --skip-chrome
+curl -fsSL https://github.com/TruthWatcherIntelligence/glys-bootstrap/raw/v0.1.4/install.sh | bash -s -- --skip-chrome
 ```
 
 ---
@@ -74,7 +74,7 @@ Follow the prompts. Glys will be ready in under a minute.
 
 ## If SmartScreen blocks the installer
 
-Windows marks downloaded scripts as untrusted. The PowerShell one-liner (`irm | iex`) runs the script directly in memory and does not trigger SmartScreen. The `.bat` file, because it is saved to disk, may show a SmartScreen dialog:
+Windows marks downloaded scripts as untrusted. The PowerShell one-liner (using `New-Object Net.WebClient`) runs the script directly in memory and does not trigger SmartScreen. The `.bat` file, because it is saved to disk, may show a SmartScreen dialog:
 
 1. Click **More info** in the dialog
 2. Click **Run anyway**

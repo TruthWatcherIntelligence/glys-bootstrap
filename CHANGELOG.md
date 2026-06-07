@@ -4,6 +4,17 @@ All notable changes to the Glys bootstrap installer.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-06-07
+
+### Fixed
+- Install order corrected: Git now installs BEFORE Claude Code. Claude Code's installer requires Git for Windows (bash.exe) to be present, and the prior order (Python -> Claude -> Git -> Chrome) caused Claude install to fail on clean machines. New order: Python -> Git -> Claude Code -> Chrome. Surfaced by sandbox testing of v0.1.2 on a fresh Windows 11 install.
+- Python verify "not found" false negative on fresh installs. After `Refresh-EnvPath`, `Get-Command`'s internal cache did not see freshly installed binaries until the PowerShell session restarted. Added explicit cache bust in `Refresh-EnvPath` plus Test-Path fallbacks on canonical install locations for Python and Git.
+- Buyer-facing one-liner switched to the Chocolatey/scoop pattern (`iex ((New-Object Net.WebClient).DownloadString(...))`). PowerShell 5.1's `Invoke-RestMethod` returns null body for `text/plain` Content-Type responses from raw GitHub, which broke the v0.1.3 `irm | iex` form. The WebClient pattern is battle-tested across 10+ years of public PowerShell installers.
+
+### Changed
+- Version is now a hardcoded constant in install.ps1 instead of read from the VERSION file at runtime. When invoked via `iex`, `$PSScriptRoot` is null so the file lookup failed and the banner showed "vunknown". The VERSION file stays in the repo as a build artifact for external version queries.
+- Distribution URLs pinned to `raw/v0.1.4/` instead of `raw/v0.1.3/`.
+
 ## [0.1.3] - 2026-06-07
 
 ### Fixed

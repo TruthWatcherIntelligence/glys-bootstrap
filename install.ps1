@@ -27,6 +27,8 @@ if ($PSVersionTable.PSVersion -lt [Version]'5.1') {
     exit 1
 }
 
+$BOOTSTRAP_VERSION = "0.1.4"
+
 # Force TLS 1.2 for all HTTPS calls. PowerShell 5.1 defaults to TLS 1.0/1.1 which
 # GitHub API and many CDNs now reject. The buyer-facing one-liner sets this in
 # the parent IEX scope; we set it again inside the script body so the policy
@@ -82,9 +84,32 @@ function Prompt-YN {
 }
 
 function Refresh-EnvPath {
+    # Re-read the machine and user PATH from the registry. Reassigning $env:Path
+    # is what makes newly installed binaries discoverable in this session; the
+    # registry values are updated by the .exe installers but $env:Path is only
+    # a snapshot taken when PowerShell launched, so it needs an explicit refresh.
     $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
     $userPath    = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    $env:Path    = "$machinePath;$userPath;$env:Path"
+    $combined    = "$machinePath;$userPath;$env:Path"
+
+    # Dedupe so repeated in-session re-runs don't grow $env:Path unboundedly
+    # toward the 32767-character Windows limit.
+    $seen = @{}
+    $deduped = @(
+        foreach ($entry in ($combined -split ';')) {
+            if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+            $key = $entry.TrimEnd('\').ToLowerInvariant()
+            if (-not $seen.ContainsKey($key)) {
+                $seen[$key] = $true
+                $entry
+            }
+        }
+    )
+    $env:Path = ($deduped -join ';')
+
+    # Probe a few names so PowerShell's command discovery walks the new PATH
+    # and primes the per-session resolution; harmless if any are absent.
+    Get-Command python, py, git, claude, npm, node -All -ErrorAction SilentlyContinue | Out-Null
 }
 
 function Get-PythonVersion {
@@ -149,6 +174,35 @@ function Get-PythonVersion {
             continue
         }
     }
+
+    # Fallback: direct Test-Path check on the canonical install locations our
+    # bootstrap places Python at. We only check amd64 paths because the script
+    # installs python-3.12.10-amd64.exe; an x86 Python at the (x86) path would
+    # be a pre-existing third-party install we did not place and should not
+    # claim as our verify target.
+    $canonicalPaths = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+        "$env:ProgramFiles\Python312\python.exe"
+    )
+    foreach ($p in $canonicalPaths) {
+        if (Test-Path $p) {
+            try {
+                $versionLine = & $p --version 2>&1
+                if ($versionLine -match "Python (\d+)\.(\d+)") {
+                    $major = [int]$Matches[1]
+                    $minor = [int]$Matches[2]
+                    if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 10)) {
+                        return [PSCustomObject]@{
+                            Major   = $major
+                            Minor   = $minor
+                            Command = $p
+                            Version = "$major.$minor"
+                        }
+                    }
+                }
+            } catch { continue }
+        }
+    }
     return $null
 }
 
@@ -172,7 +226,10 @@ function Test-ClaudeInstalled {
 
 function Test-GitInstalled {
     $cmd = Get-Command git -ErrorAction SilentlyContinue
-    return ($null -ne $cmd)
+    if ($cmd) { return $true }
+    # Fallback: filesystem check (PATH cache may not be refreshed)
+    return (Test-Path "$env:ProgramFiles\Git\bin\git.exe") -or `
+           (Test-Path "${env:ProgramFiles(x86)}\Git\bin\git.exe")
 }
 
 function Test-WingetAvailable {
@@ -204,9 +261,7 @@ function Invoke-Download {
 $script:msPythonWarning = $false
 
 # Step 1: Banner
-$versionFile = Join-Path $PSScriptRoot "VERSION"
-$VERSION = if (Test-Path $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { "unknown" }
-Write-Banner "Glys Bootstrap v$VERSION"
+Write-Banner "Glys Bootstrap v$BOOTSTRAP_VERSION"
 
 # Step 2: Privilege detection
 $currentPrincipal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -394,14 +449,64 @@ if (-not $hasPython) {
 }
 
 # ---------------------------------------------------------------------------
-# Step 11: PATH refresh (also covers tools installed before this run)
+# Step 11: Install Git
+# Git must be installed BEFORE Claude Code. Claude Code's installer requires
+# Git for Windows (bash.exe) to be present; installing Claude first causes
+# a clean-machine failure with "Claude Code on Windows requires Git for Windows."
+# ---------------------------------------------------------------------------
+
+$gitInstallFailed = $false
+
+if (-not $hasGit) {
+    Write-Step "Installing Git..."
+    $installed = $false
+
+    if ($hasWinget) {
+        try {
+            Write-Step "Trying winget for Git..."
+            winget install Git.Git --silent --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -ne 0) {
+                throw "winget exited with code $LASTEXITCODE"
+            }
+            $installed = $true
+        } catch {
+            Write-Warn "winget install failed: $_"
+        }
+    }
+
+    if (-not $installed) {
+        try {
+            $gitUrl  = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/Git-2.47.1-64-bit.exe"
+            $gitExe  = Invoke-Download -Url $gitUrl -FileName "Git-2.47.1-64-bit.exe"
+            Write-Step "Running Git installer (silent)..."
+            $p = Start-Process -FilePath $gitExe `
+                -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=`"icons,ext\reg\shellhere,assoc,assoc_sh`"" `
+                -Wait -PassThru
+            if ($p.ExitCode -ne 0) {
+                throw "Git installer exited $($p.ExitCode)"
+            }
+            Remove-Item $gitExe -ErrorAction SilentlyContinue
+            $installed = $true
+        } catch {
+            Write-Fail "Git install failed: $_"
+            $gitInstallFailed = $true
+        }
+    }
+
+    Write-Step "Refreshing PATH..."
+    Refresh-EnvPath
+}
+
+# ---------------------------------------------------------------------------
+# Step 12: PATH refresh (also covers tools installed before this run)
 # ---------------------------------------------------------------------------
 
 Write-Step "Refreshing PATH..."
 Refresh-EnvPath
 
 # ---------------------------------------------------------------------------
-# Step 12: Install Claude Code
+# Step 13: Install Claude Code
+# Note: Git for Windows must be installed before this step (Claude needs bash.exe).
 # ---------------------------------------------------------------------------
 
 $claudeInstallFailed = $false
@@ -443,52 +548,6 @@ if (-not $hasClaude) {
     if (-not $installed) {
         Write-Fail "Claude Code could not be installed."
         $claudeInstallFailed = $true
-    }
-
-    Write-Step "Refreshing PATH..."
-    Refresh-EnvPath
-}
-
-# ---------------------------------------------------------------------------
-# Step 13: Install Git
-# ---------------------------------------------------------------------------
-
-$gitInstallFailed = $false
-
-if (-not $hasGit) {
-    Write-Step "Installing Git..."
-    $installed = $false
-
-    if ($hasWinget) {
-        try {
-            Write-Step "Trying winget for Git..."
-            winget install Git.Git --silent --accept-source-agreements --accept-package-agreements
-            if ($LASTEXITCODE -ne 0) {
-                throw "winget exited with code $LASTEXITCODE"
-            }
-            $installed = $true
-        } catch {
-            Write-Warn "winget install failed: $_"
-        }
-    }
-
-    if (-not $installed) {
-        try {
-            $gitUrl  = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/Git-2.47.1-64-bit.exe"
-            $gitExe  = Invoke-Download -Url $gitUrl -FileName "Git-2.47.1-64-bit.exe"
-            Write-Step "Running Git installer (silent)..."
-            $p = Start-Process -FilePath $gitExe `
-                -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=`"icons,ext\reg\shellhere,assoc,assoc_sh`"" `
-                -Wait -PassThru
-            if ($p.ExitCode -ne 0) {
-                throw "Git installer exited $($p.ExitCode)"
-            }
-            Remove-Item $gitExe -ErrorAction SilentlyContinue
-            $installed = $true
-        } catch {
-            Write-Fail "Git install failed: $_"
-            $gitInstallFailed = $true
-        }
     }
 
     Write-Step "Refreshing PATH..."
